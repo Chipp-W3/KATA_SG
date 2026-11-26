@@ -118,7 +118,10 @@ jobs:
         run: kustomize edit set image api=$REGISTRY/api:$IMAGE_TAG front=$REGISTRY/front:$IMAGE_TAG
 
       - name: Deploy
-        run: kubectl apply -k k8s
+        run: |
+          # GKE installs this CRD a few minutes after cluster creation.
+          kubectl wait --for=condition=established --timeout=300s crd/podmonitorings.monitoring.googleapis.com
+          kubectl apply -k k8s
 
       - name: Wait for rollout, roll back on failure
         run: |

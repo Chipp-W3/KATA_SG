@@ -21,4 +21,5 @@ WORKDIR /app
 COPY app ./app
 USER 10001:10001
 EXPOSE 8000
-CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]
+# Access logs come from the app middleware, in JSON (uvicorn's are plain text).
+CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000", "--no-access-log"]

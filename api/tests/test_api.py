@@ -1,7 +1,10 @@
+import json
+import logging
+
 import pytest
 from fastapi.testclient import TestClient
 
-from app.main import app
+from app.main import JsonFormatter, app
 
 
 @pytest.fixture
@@ -66,3 +69,12 @@ def test_latency_histogram_uses_route_template_and_status(client):
     bucket = 'http_request_duration_seconds_bucket{le="0.5",method="GET",route="/api/work",status="200"}'
     assert bucket in text
     assert 'route="unmatched",status="404"' in text  # raw URLs never become labels
+
+
+def test_logs_are_json_with_severity_and_fields():
+    record = logging.LogRecord("api", logging.INFO, __file__, 1, "request", None, None)
+    record.fields = {"route": "/api/work", "status": 200}
+    entry = json.loads(JsonFormatter().format(record))
+    assert entry["severity"] == "INFO"
+    assert entry["message"] == "request"
+    assert entry["route"] == "/api/work"

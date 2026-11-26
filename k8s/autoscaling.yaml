@@ -1,0 +1,70 @@
+# Scale on CPU relative to the requests (250m for the API): requests must be
+# set, otherwise utilization has no meaning.
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: api
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: api
+  minReplicas: 2 # never a single point of failure
+  maxReplicas: 10 # bounded by the free-trial quota (2 nodes at most)
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60 # headroom to absorb spikes while new pods start
+  behavior:
+    scaleUp:
+      stabilizationWindowSeconds: 0
+      policies:
+        - type: Percent
+          value: 100 # at most double every 15s
+          periodSeconds: 15
+    scaleDown:
+      stabilizationWindowSeconds: 120 # avoid flapping; default is 300s
+---
+apiVersion: autoscaling/v2
+kind: HorizontalPodAutoscaler
+metadata:
+  name: front
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v1
+    kind: Deployment
+    name: front
+  minReplicas: 2
+  maxReplicas: 4 # nginx is cheap: it rarely needs more
+  metrics:
+    - type: Resource
+      resource:
+        name: cpu
+        target:
+          type: Utilization
+          averageUtilization: 60
+---
+# Voluntary disruptions (node upgrades, Autopilot consolidation) never take
+# the last available pod.
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: api
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: api
+---
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: front
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app: front
