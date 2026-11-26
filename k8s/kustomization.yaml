@@ -7,6 +7,7 @@ resources:
   - namespace.yaml
   - api.yaml
   - front.yaml
+  - autoscaling.yaml
 
 # Non-sensitive configuration. The secret itself is read from Secret Manager.
 configMapGenerator:

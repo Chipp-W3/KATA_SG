@@ -10,7 +10,7 @@ kind: Deployment
 metadata:
   name: api
 spec:
-  replicas: 2
+  # No `replicas`: owned by the HPA (an apply would otherwise reset it under load).
   strategy:
     rollingUpdate:
       maxUnavailable: 0 # never below current capacity during a rollout
