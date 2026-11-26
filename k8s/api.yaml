@@ -24,12 +24,22 @@ spec:
         app: api
     spec:
       serviceAccountName: api
+      terminationGracePeriodSeconds: 30
       securityContext:
         runAsNonRoot: true
         runAsUser: 10001
         runAsGroup: 10001
         seccompProfile:
           type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          # Hard rule: survive a zone outage. With a soft rule, Autopilot packed
+          # every pod on a single node in a single zone.
+          whenUnsatisfiable: DoNotSchedule
+          labelSelector:
+            matchLabels:
+              app: api
       containers:
         - name: api
           image: api # rewritten by kustomize (images:)
@@ -61,6 +71,12 @@ spec:
               port: http
             periodSeconds: 10
             failureThreshold: 3
+          lifecycle:
+            preStop:
+              # Leave time for the endpoint removal to reach the load balancer
+              # and nginx before uvicorn receives SIGTERM.
+              sleep:
+                seconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true

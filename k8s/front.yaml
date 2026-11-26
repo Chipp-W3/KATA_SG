@@ -23,6 +23,15 @@ spec:
         runAsGroup: 101
         seccompProfile:
           type: RuntimeDefault
+      topologySpreadConstraints:
+        - maxSkew: 1
+          topologyKey: topology.kubernetes.io/zone
+          # Soft: the API rule already brings nodes in two zones, the scheduler then
+          # prefers spreading the front over them (not guaranteed: see README limits).
+          whenUnsatisfiable: ScheduleAnyway
+          labelSelector:
+            matchLabels:
+              app: front
       containers:
         - name: front
           image: front # rewritten by kustomize (images:)
@@ -45,6 +54,10 @@ spec:
               path: /healthz
               port: http
             periodSeconds: 10
+          lifecycle:
+            preStop:
+              sleep:
+                seconds: 5
           securityContext:
             allowPrivilegeEscalation: false
             readOnlyRootFilesystem: true
