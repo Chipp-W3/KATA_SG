@@ -44,6 +44,10 @@ spec:
           labelSelector:
             matchLabels:
               app: api
+          # Count only the pods of the new revision: during a rolling update the
+          # old pods (about to be deleted) would otherwise balance the zones.
+          matchLabelKeys:
+            - pod-template-hash
       containers:
         - name: api
           image: api # rewritten by kustomize (images:)
