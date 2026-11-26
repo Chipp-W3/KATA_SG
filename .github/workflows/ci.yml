@@ -3,12 +3,19 @@ name: ci
 on:
   push:
     branches: [main]
+    # A docs-only merge must not rebuild and redeploy.
+    paths-ignore: ["docs/**", "**/*.md"]
+  # No paths filter on PRs: `checks` is a REQUIRED status. If it never ran,
+  # a docs-only PR would wait for it forever and could not be merged.
   pull_request:
   workflow_dispatch:
 
 # Least privilege: the GITHUB_TOKEN can only read the repo.
 permissions:
   contents: read
+
+env:
+  IMAGE_TAG: ${{ github.sha }}
 
 jobs:
   # Required status check on main: do not rename this job.
@@ -35,3 +42,105 @@ jobs:
           terraform_version: "1.17.2" # same as the workstation
       - name: Terraform format
         run: if [ -d infra ]; then terraform fmt -check -recursive infra; fi
+
+  # One job definition, one parallel run per service. Each leg builds, scans
+  # and pushes ITS image on ITS runner: the image pushed is exactly the one
+  # scanned, and no artifact has to cross runners.
+  images:
+    needs: checks
+    if: github.event_name != 'pull_request' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write # GitHub OIDC token, exchanged for GCP credentials (WIF)
+    strategy:
+      fail-fast: true # one failing image cancels the other leg: nothing half-built ships
+      matrix:
+        service: [api, front]
+    env:
+      IMAGE: ${{ vars.GCP_REGISTRY }}/${{ matrix.service }}:${{ github.sha }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Authenticate to GCP (Workload Identity Federation, no key)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SA }}
+
+      - uses: google-github-actions/setup-gcloud@aa5489c8933f4cc7a4f7d45035b3b1440c9c10db # v3.0.1
+
+      - name: Build ${{ matrix.service }}
+        run: docker build --build-arg "APP_VERSION=${IMAGE_TAG::7}" -t "$IMAGE" "${{ matrix.service }}"
+
+      - name: Scan ${{ matrix.service }}
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: ${{ env.IMAGE }}
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true # block only on vulnerabilities that have a fix
+          exit-code: "1"
+
+      - name: Push ${{ matrix.service }}
+        run: |
+          gcloud auth configure-docker "${IMAGE%%/*}" --quiet
+          docker push "$IMAGE"
+
+  # Deploy once BOTH images are in the registry.
+  deploy:
+    needs: images # waits for every matrix leg to succeed
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      id-token: write
+    # One deployment at a time: a newer merge waits instead of racing.
+    concurrency:
+      group: deploy-main
+      cancel-in-progress: false
+    env:
+      REGISTRY: ${{ vars.GCP_REGISTRY }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - name: Authenticate to GCP (Workload Identity Federation, no key)
+        uses: google-github-actions/auth@7c6bc770dae815cd3e89ee6cdf493a5fab2cc093 # v3
+        with:
+          workload_identity_provider: ${{ vars.GCP_WIF_PROVIDER }}
+          service_account: ${{ vars.GCP_CI_SA }}
+
+      - uses: google-github-actions/get-gke-credentials@3da1e46a907576cefaa90c484278bb5b259dd395 # v3.0.0
+        with:
+          cluster_name: ${{ vars.GKE_CLUSTER }}
+          location: ${{ vars.GCP_REGION }}
+
+      - name: Pin image tags to this commit
+        working-directory: k8s
+        run: kustomize edit set image api=$REGISTRY/api:$IMAGE_TAG front=$REGISTRY/front:$IMAGE_TAG
+
+      - name: Deploy
+        run: kubectl apply -k k8s
+
+      - name: Wait for rollout, roll back on failure
+        run: |
+          for d in api front; do
+            if ! kubectl rollout status deploy/$d -n kata --timeout=180s; then
+              echo "::error::rollout of $d failed, rolling back"
+              kubectl rollout undo deploy/$d -n kata
+              kubectl rollout status deploy/$d -n kata --timeout=180s
+              exit 1
+            fi
+          done
+
+      - name: Smoke test (the public URL serves this version)
+        env:
+          URL: http://${{ vars.FRONT_IP }}
+        run: |
+          expected=${IMAGE_TAG::7}
+          for i in $(seq 1 12); do
+            body=$(curl -fsS --max-time 5 "$URL/api/whoami" || true)
+            echo "attempt $i: $body"
+            if echo "$body" | grep -q "\"version\":\"$expected\""; then exit 0; fi
+            sleep 5
+          done
+          echo "::error::$URL does not serve version $expected"
+          exit 1
