@@ -37,6 +37,10 @@ spec:
           # Hard rule: survive a zone outage. With a soft rule, Autopilot packed
           # every pod on a single node in a single zone.
           whenUnsatisfiable: DoNotSchedule
+          # The skew is only computed over zones that already have a node: with a
+          # single node, one zone is "balanced". minDomains makes the scheduler
+          # count missing zones as empty, so Autopilot must add a node elsewhere.
+          minDomains: 2
           labelSelector:
             matchLabels:
               app: api
