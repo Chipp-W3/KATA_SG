@@ -1,0 +1,35 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>KATA_SG</title>
+  <style>
+    body { font-family: system-ui, sans-serif; max-width: 40rem; margin: 3rem auto; padding: 0 1rem; }
+    code { background: #eee; padding: .1rem .3rem; }
+  </style>
+</head>
+<body>
+  <h1>KATA_SG</h1>
+  <p>Answered by pod: <code id="pod">…</code></p>
+  <p>Version: <code id="version">…</code></p>
+  <button id="refresh">Call the API again</button>
+  <script>
+    async function refresh() {
+      const pod = document.getElementById('pod');
+      const version = document.getElementById('version');
+      try {
+        const res = await fetch('/api/whoami');
+        if (!res.ok) { pod.textContent = `HTTP ${res.status}`; return; }
+        const body = await res.json();
+        pod.textContent = body.pod;
+        version.textContent = body.version;
+      } catch (e) {
+        pod.textContent = 'API unreachable';
+      }
+    }
+    document.getElementById('refresh').addEventListener('click', refresh);
+    refresh();
+  </script>
+</body>
+</html>

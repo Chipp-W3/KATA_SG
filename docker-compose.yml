@@ -1,0 +1,12 @@
+# Local run: same images as production, the admin token comes from the environment.
+services:
+  api:
+    build: ./api
+    environment:
+      ADMIN_TOKEN: ${ADMIN_TOKEN:-local-dev-token}
+  front:
+    build: ./front
+    ports:
+      - "8080:8080"
+    depends_on:
+      - api
