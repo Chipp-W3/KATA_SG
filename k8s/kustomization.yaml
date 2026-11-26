@@ -1,0 +1,25 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+namespace: kata
+
+resources:
+  - namespace.yaml
+  - api.yaml
+  - front.yaml
+
+# Non-sensitive configuration. The secret itself is read from Secret Manager.
+configMapGenerator:
+  - name: api-config
+    literals:
+      - GCP_PROJECT=kata-devops-515522
+
+# The CI sets the tags to the commit SHA on its runner:
+#   kustomize edit set image api=<registry>/api:<sha>
+images:
+  - name: api
+    newName: europe-west1-docker.pkg.dev/kata-devops-515522/kata/api
+    newTag: v0-manual
+  - name: front
+    newName: europe-west1-docker.pkg.dev/kata-devops-515522/kata/front
+    newTag: v0-manual
