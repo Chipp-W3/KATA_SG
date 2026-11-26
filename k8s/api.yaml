@@ -73,12 +73,17 @@ spec:
               path: /ready
               port: http
             periodSeconds: 5
+            timeoutSeconds: 2
+          # Liveness must only kill a STUCK process, never a slow one: under CPU
+          # saturation /health took more than the default 1 s, the kubelet
+          # restarted busy pods and capacity dropped further (k6 run, 2:46).
           livenessProbe:
             httpGet:
               path: /health
               port: http
             periodSeconds: 10
-            failureThreshold: 3
+            timeoutSeconds: 5
+            failureThreshold: 6 # restart after ~60 s without an answer
           lifecycle:
             preStop:
               # Leave time for the endpoint removal to reach the load balancer
