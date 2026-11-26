@@ -158,15 +158,22 @@ k6 run -e BASE_URL=http://34.52.227.249 load/k6.js
 
 ### Result: thresholds crossed, the ceiling is capacity, not the autoscaler
 
-k6 (client side): **both thresholds crossed** (`http_req_duration` and `http_req_failed`).
+k6 (client side, 9 min): **both thresholds crossed**.
+
+| Metric | Value | SLO |
+|---|---|---|
+| Requests | 20,014 (37 req/s on average) | |
+| Latency median / p90 / **p95** / max | 551 ms / 2.61 s / **3.1 s** / 6.95 s | p95 < 500 ms ✗ |
+| Failed requests | **1.05 %** (211) | < 1 % ✗ |
+
+k6 uses a closed model: each user waits for its response, then 1 s. As latency grew, the request rate fell to 37 req/s instead of the ~90 req/s that 100 users would send with fast answers.
 
 API (server side, from our own `http_request_duration_seconds` histogram in Managed Prometheus):
 
 | Metric (`/api/work`, 9 min) | Value |
 |---|---|
-| Requests answered | 15,484, **all HTTP 200** |
-| Throughput served | ~33 req/s (about 90 req/s offered) |
-| p50 / p95 latency | 549 ms / **2.39 s** |
+| Requests answered | 15,484, **all HTTP 200** (fewer than k6 counted: the series of the deleted and restarted pods are partly lost) |
+| p50 / p95 latency | 549 ms / **2.39 s** (lower than k6: time spent in nginx and the network is not included) |
 
 Timeline (k6 started at 17:29, recorded every 10 s):
 
