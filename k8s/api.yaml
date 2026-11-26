@@ -101,3 +101,17 @@ spec:
     - name: http
       port: 8000
       targetPort: http
+---
+# Managed Prometheus: GKE's collectors scrape /metrics on the API pods.
+apiVersion: monitoring.googleapis.com/v1
+kind: PodMonitoring
+metadata:
+  name: api
+spec:
+  selector:
+    matchLabels:
+      app: api
+  endpoints:
+    - port: http
+      path: /metrics
+      interval: 30s

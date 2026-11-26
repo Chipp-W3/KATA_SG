@@ -2,6 +2,7 @@
 
 import hashlib
 import hmac
+import json
 import logging
 import os
 import socket
@@ -12,7 +13,22 @@ from fastapi import FastAPI, Header, HTTPException, Query, Request
 from fastapi.responses import PlainTextResponse
 from prometheus_client import CONTENT_TYPE_LATEST, Histogram, generate_latest
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
+
+class JsonFormatter(logging.Formatter):
+    """One JSON object per line on stdout. Cloud Logging parses it: `severity`
+    sets the log level, the other keys become searchable fields."""
+
+    def format(self, record: logging.LogRecord) -> str:
+        entry = {"severity": record.levelname, "message": record.getMessage(), "logger": record.name}
+        entry.update(getattr(record, "fields", {}))  # structured fields passed with extra={"fields": ...}
+        if record.exc_info:
+            entry["exception"] = self.formatException(record.exc_info)
+        return json.dumps(entry)
+
+
+handler = logging.StreamHandler()
+handler.setFormatter(JsonFormatter())
+logging.basicConfig(level=logging.INFO, handlers=[handler])
 log = logging.getLogger("api")
 
 POD_NAME = os.getenv("POD_NAME", socket.gethostname())
@@ -29,6 +45,9 @@ REQUEST_LATENCY = Histogram(
     ["method", "route", "status"],
     buckets=(0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0),  # dense around the 500 ms SLO
 )
+
+# Probes and scrapes every few seconds would drown the useful access logs.
+QUIET_ROUTES = {"/health", "/ready", "/metrics"}
 
 state: dict[str, str | None] = {"admin_token": None}
 served = {"requests": 0}  # requests handled by THIS pod since it started
@@ -74,8 +93,22 @@ async def observe(request: Request, call_next):
     finally:
         route = request.scope.get("route")
         template = route.path if route else "unmatched"  # e.g. 404s on random URLs
-        REQUEST_LATENCY.labels(request.method, template, str(status)).observe(time.perf_counter() - start)
+        duration = time.perf_counter() - start
+        REQUEST_LATENCY.labels(request.method, template, str(status)).observe(duration)
         served["requests"] += 1
+        if template not in QUIET_ROUTES:
+            log.info(
+                "request",
+                extra={
+                    "fields": {
+                        "method": request.method,
+                        "route": template,
+                        "status": status,
+                        "duration_ms": round(duration * 1000, 1),
+                        "pod": POD_NAME,
+                    }
+                },
+            )
 
 
 @app.get("/health")
