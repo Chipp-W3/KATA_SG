@@ -1,0 +1,25 @@
+# Secrets and local config
+.env
+*.pem
+*.key
+gha-creds-*.json
+
+# Terraform
+.terraform/
+*.tfstate
+*.tfstate.*
+*.tfvars
+!*.tfvars.example
+crash.log
+tfplan
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+.pytest_cache/
+.ruff_cache/
+
+# Misc
+.DS_Store
+.vscode/
