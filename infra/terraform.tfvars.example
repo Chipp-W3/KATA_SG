@@ -1,1 +1,2 @@
-project_id = "my-project-123456"
+project_id  = "my-project-123456"
+github_repo = "owner/repo"
