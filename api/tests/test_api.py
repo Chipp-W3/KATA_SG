@@ -5,8 +5,9 @@ from app.main import app
 
 
 @pytest.fixture
-def client():
-    with TestClient(app) as c:
+def client(monkeypatch):
+    monkeypatch.setenv("ADMIN_TOKEN", "test-token")
+    with TestClient(app) as c:  # context manager runs the lifespan (token loading)
         yield c
 
 
@@ -32,3 +33,36 @@ def test_work_returns_pod_and_iterations(client):
 
 def test_work_rejects_abusive_iterations(client):
     assert client.get("/api/work", params={"iterations": 10_000_000}).status_code == 422
+
+
+def test_admin_rejects_missing_token(client):
+    assert client.get("/api/admin/stats").status_code == 401
+
+
+def test_admin_rejects_wrong_token(client):
+    assert client.get("/api/admin/stats", headers={"X-Admin-Token": "nope"}).status_code == 401
+
+
+def test_admin_stats_reports_real_figures(client):
+    client.get("/api/whoami")
+    resp = client.get("/api/admin/stats", headers={"X-Admin-Token": "test-token"})
+    assert resp.status_code == 200
+    body = resp.json()
+    assert body["requests_served"] >= 1
+    assert body["secret_source"] == "env"
+
+
+def test_admin_unavailable_without_secret(monkeypatch):
+    monkeypatch.delenv("ADMIN_TOKEN", raising=False)
+    monkeypatch.delenv("GCP_PROJECT", raising=False)
+    with TestClient(app) as c:
+        assert c.get("/api/admin/stats").status_code == 503
+
+
+def test_latency_histogram_uses_route_template_and_status(client):
+    client.get("/api/work", params={"iterations": 5})
+    client.get("/does-not-exist")
+    text = client.get("/metrics").text
+    bucket = 'http_request_duration_seconds_bucket{le="0.5",method="GET",route="/api/work",status="200"}'
+    assert bucket in text
+    assert 'route="unmatched",status="404"' in text  # raw URLs never become labels
